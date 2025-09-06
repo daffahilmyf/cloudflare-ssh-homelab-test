@@ -36,6 +36,9 @@ jobs:
       
           sleep 5
       
-          ssh -o StrictHostKeyChecking=no -p 2222 github@localhost "echo ✅ Connected from GitHub! && uptime"
+          ssh -o StrictHostKeyChecking=no -p 2222 github@localhost "\
+            mkdir -p ~/github && \
+            echo [\$(date '+%Y-%m-%d %H:%M:%S')] Hello from GitHub Actions! >> ~/github/hello_world.txt && \
+            echo ✅ File updated with timestamp"
 
 
