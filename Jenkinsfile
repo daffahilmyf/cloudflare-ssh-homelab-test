@@ -97,7 +97,7 @@ pipeline {
                 sh '''
                     echo "🔍 Running linter..."
                     uv pip install ruff
-                    ruff check .
+                    uv run ruff check .
                 '''
             }
         }
