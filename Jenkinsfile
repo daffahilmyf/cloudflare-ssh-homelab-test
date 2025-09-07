@@ -170,7 +170,7 @@ echo "🛑 Stopping Docker Compose"
 docker compose down || true
 
 echo "🔍 Checking for changes in src/, tests/, or configs..."
-CHANGED=$(git diff --name-only HEAD@{1} HEAD | grep -E '^(src/|tests/|pyproject\.toml|Dockerfile)' || true)
+CHANGED=$(git diff --name-only HEAD@{1} HEAD | grep -E '^(src/|tests/|pyproject\\.toml|Dockerfile)' || true)
 
 if [ -n "$CHANGED" ]; then
     echo "🧱 Relevant changes detected → Rebuilding image with no cache"
