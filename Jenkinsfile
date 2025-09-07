@@ -18,7 +18,7 @@ pipeline {
         string(name: 'CLOUDFLARED_VERSION', defaultValue: '2024.8.0', description: 'Version of cloudflared to use')
         string(name: 'CLOUDFLARED_ARCH', defaultValue: 'linux-amd64', description: 'cloudflared architecture (e.g., linux-amd64)')
         string(name: 'SSH_HOSTNAME', defaultValue: 'ssh.tesutotech.my.id', description: 'Cloudflare tunnel hostname')
-        string(name: 'DEPLOY_DIR', defaultValue: '~/homelab-apps/my-repo', description: 'Target directory on the remote machine')
+        string(name: 'DEPLOY_DIR', defaultValue: '~/homelab-apps', description: 'Base directory on the remote machine')
         booleanParam(name: 'USE_RANDOM_PORT', defaultValue: false, description: 'Use a random port for the local tunnel')
         booleanParam(name: 'STRICT_HOST_CHECKING', defaultValue: false, description: 'Enable strict SSH host key checking')
     }
@@ -30,12 +30,14 @@ pipeline {
                     env.SSH_HOSTNAME = params.SSH_HOSTNAME?.trim()
                     env.CLOUDFLARED_VERSION = params.CLOUDFLARED_VERSION?.trim()
                     env.CLOUDFLARED_ARCH = params.CLOUDFLARED_ARCH?.trim()
-                    env.DEPLOY_DIR = params.DEPLOY_DIR?.trim()
                     env.DEFAULT_SSH_PORT = '2222'
                     env.SSH_PORT = params.USE_RANDOM_PORT ? sh(script: "shuf -i 2000-65000 -n 1", returnStdout: true).trim() : env.DEFAULT_SSH_PORT
                     env.TUNNEL_LOCAL_BIND = "localhost:${env.SSH_PORT}"
                     env.CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/download/${env.CLOUDFLARED_VERSION}/cloudflared-${env.CLOUDFLARED_ARCH}"
                     env.REPO_URL = env.GIT_URL ?: sh(script: 'git config --get remote.origin.url', returnStdout: true).trim()
+                    def repoName = env.REPO_URL.tokenize('/').last().replace('.git', '')
+                    env.REPO_NAME = repoName
+                    env.DEPLOY_DIR = "${params.DEPLOY_DIR?.trim()}/${repoName}"
 
                     if (params.STRICT_HOST_CHECKING) {
                         env.SSH_KNOWN_HOSTS_OPTION = ''
@@ -90,7 +92,6 @@ pipeline {
                 '''
             }
         }
-
 
         stage('Lint') {
             steps {
@@ -153,7 +154,7 @@ pipeline {
                             echo "📡 Connecting and deploying..."
 
                             ssh -i "$SSH_KEY" $SSH_KNOWN_HOSTS_OPTION -p "$SSH_PORT" "$SSH_USER"@localhost \
-                              DEPLOY_DIR="$DEPLOY_DIR" REPO_URL="$REPO_URL" bash <<'EOF'
+                              DEPLOY_DIR="$DEPLOY_DIR" REPO_URL="$REPO_URL" REPO_NAME="$REPO_NAME" bash <<'EOF'
 set -euo pipefail
 mkdir -p "$DEPLOY_DIR"
 cd "$DEPLOY_DIR"
