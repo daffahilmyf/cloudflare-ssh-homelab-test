@@ -100,23 +100,7 @@ pipeline {
             }
         }
 
-        stage('Tag Release') {
-            steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'f856e05c-4757-4368-a28b-0a6804256f56', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
-                    sh '''
-                        echo "🔖 Tagging release ${VERSION}..."
-                        git config --global user.email "jenkins@example.com"
-                        git config --global user.name "Jenkins"
-
-                        # Update origin URL to SSH for pushing
-                        git remote set-url origin "$REPO_URL"
-
-                        git tag -a "${VERSION}" -m "Release ${VERSION}"
-                        git push origin "${VERSION}"
-                    '''
-                }
-            }
-        }
+        
 
         stage('Deploy to Homelab') {
             steps {
