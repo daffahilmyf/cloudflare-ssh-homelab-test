@@ -34,12 +34,16 @@ pipeline {
 
                     env.TUNNEL_LOCAL_BIND = "localhost:${env.SSH_PORT}"
                     env.CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/download/${params.CLOUDFLARED_VERSION}/cloudflared-${params.CLOUDFLARED_ARCH}"
-                    env.REPO_URL = sh(script: 'git config --get remote.origin.url', returnStdout: true).trim()
+
+                    // Use SSH Git URL explicitly
+                    env.REPO_URL = "git@github.com:daffahilmyf/cloudflare-ssh-homelab-test.git"
                     env.REPO_NAME = env.REPO_URL.tokenize('/').last().replace('.git', '')
                     env.DEPLOY_DIR = "${params.DEPLOY_DIR}/${env.REPO_NAME}"
+
                     if (params.STRICT_HOST_CHECKING) {
                         env.SSH_KNOWN_HOSTS_OPTION = ''
                     }
+
                     sh 'mkdir -p "$(dirname $CLOUDFLARED_BIN)"'
                     sh 'mkdir -p "$(dirname $UV_BIN)"'
                     writeFile file: '.tunnel_log_path', text: sh(script: 'mktemp', returnStdout: true).trim()
@@ -103,6 +107,10 @@ pipeline {
                         echo "🔖 Tagging release ${VERSION}..."
                         git config --global user.email "jenkins@example.com"
                         git config --global user.name "Jenkins"
+
+                        # Update origin URL to SSH for pushing
+                        git remote set-url origin "$REPO_URL"
+
                         git tag -a "${VERSION}" -m "Release ${VERSION}"
                         git push origin "${VERSION}"
                     '''
@@ -162,14 +170,11 @@ else
     git pull origin $(git rev-parse --abbrev-ref HEAD)
 fi
 
-# Best-effort rollback: Tag the current image so we can manually revert if needed.
-# The image name is determined by docker-compose, typically <project_name>_web
 IMAGE_NAME="${REPO_NAME}_web"
 echo "PREVIOUS_IMAGE_TAG=${IMAGE_NAME}:previous-good" > .env.previous
 docker image inspect "${IMAGE_NAME}:latest" &> /dev/null && \
     docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:previous-good" || \
     echo "No previous image to tag as good."
-
 
 echo "🛑 Stopping Docker Compose"
 docker compose down || true
@@ -184,9 +189,6 @@ else
     echo "⚡ No relevant changes → Using cache"
     docker compose build
 fi
-
-# You can add a Trivy scan here for the newly built image if Trivy is installed on the remote host.
-# trivy image --exit-code 1 --severity CRITICAL,HIGH "${IMAGE_NAME}:latest"
 
 echo "🚀 Starting Docker Compose"
 docker compose up -d
@@ -215,16 +217,10 @@ EOF
             echo "🧹 Cleanup complete."
         }
         success {
-            // Placeholder for success notifications
             echo "✅ Pipeline completed successfully!"
-            // Example for Slack:
-            // slackSend channel: '#ci', message: "✅ Success: ${env.JOB_NAME} build #${env.BUILD_NUMBER}. See: ${env.BUILD_URL}"
         }
         failure {
-            // Placeholder for failure notifications
             echo "❌ Pipeline failed. See tunnel.log for more info."
-            // Example for Slack:
-            // slackSend channel: '#ci', message: "❌ Failed: ${env.JOB_NAME} build #${env.BUILD_NUMBER}. See: ${env.BUILD_URL}"
         }
     }
 }
