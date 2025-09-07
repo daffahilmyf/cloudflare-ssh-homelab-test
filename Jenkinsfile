@@ -7,6 +7,7 @@ pipeline {
         SSH_KNOWN_HOSTS_OPTION = '-o StrictHostKeyChecking=no'
         PYTHON_VERSION = '3.12'
         PATH = "${HOME}/.local/bin:${PATH}"
+        VERSION = "v${env.BUILD_NUMBER}"
     }
 
     options {
@@ -68,36 +69,44 @@ pipeline {
             }
         }
 
-        stage('Run Tests') {
+        stage('Test & Lint') {
             steps {
                 sh '''
-                    echo "🐍 Setting up virtual environment with uv..."
+                    echo "🐍 Setting up virtual environment and installing dependencies..."
                     uv venv
-                    echo "🐍 Installing Python dependencies..."
                     uv pip install '.[dev]'
+
                     echo "🧪 Running tests with coverage..."
                     uv run coverage run -m pytest
                     uv run coverage report -m
-                '''
-            }
-        }
 
-        stage('Lint') {
-            steps {
-                sh '''
                     echo "🔍 Running linter..."
-                    uv pip install ruff
                     uv run ruff check .
                 '''
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Security Scan') {
             steps {
                 sh '''
-                    echo "🏗️ Building Docker image..."
-                    docker build . -t homelab-api:latest
+                    echo "🛡️ Scanning for vulnerable Python packages..."
+                    uv pip install '.[dev]'
+                    uv pip audit
                 '''
+            }
+        }
+
+        stage('Tag Release') {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'f856e05c-4757-4368-a28b-0a6804256f56', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
+                    sh '''
+                        echo "🔖 Tagging release ${VERSION}..."
+                        git config --global user.email "jenkins@example.com"
+                        git config --global user.name "Jenkins"
+                        git tag -a "${VERSION}" -m "Release ${VERSION}"
+                        git push origin "${VERSION}"
+                    '''
+                }
             }
         }
 
@@ -139,7 +148,7 @@ pipeline {
 
                         echo "📡 Connecting and deploying..."
 
-                        ssh -i "$SSH_KEY" $SSH_KNOWN_HOSTS_OPTION -p "$SSH_PORT" "$SSH_USER"@localhost DEPLOY_DIR="$DEPLOY_DIR" REPO_URL="$REPO_URL" REPO_NAME="$REPO_NAME" bash <<'EOF'
+                        ssh -i "$SSH_KEY" $SSH_KNOWN_HOSTS_OPTION -p "$SSH_PORT" "$SSH_USER"@localhost DEPLOY_DIR="$DEPLOY_DIR" REPO_URL="$REPO_URL" REPO_NAME="$REPO_NAME" bash <<-'EOF'
 set -euo pipefail
 
 mkdir -p "$DEPLOY_DIR"
@@ -152,6 +161,15 @@ else
     echo "🔄 Pulling latest changes"
     git pull origin $(git rev-parse --abbrev-ref HEAD)
 fi
+
+# Best-effort rollback: Tag the current image so we can manually revert if needed.
+# The image name is determined by docker-compose, typically <project_name>_web
+IMAGE_NAME="${REPO_NAME}_web"
+echo "PREVIOUS_IMAGE_TAG=${IMAGE_NAME}:previous-good" > .env.previous
+docker image inspect "${IMAGE_NAME}:latest" &> /dev/null && \
+    docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:previous-good" || \
+    echo "No previous image to tag as good."
+
 
 echo "🛑 Stopping Docker Compose"
 docker compose down || true
@@ -166,6 +184,9 @@ else
     echo "⚡ No relevant changes → Using cache"
     docker compose build
 fi
+
+# You can add a Trivy scan here for the newly built image if Trivy is installed on the remote host.
+# trivy image --exit-code 1 --severity CRITICAL,HIGH "${IMAGE_NAME}:latest"
 
 echo "🚀 Starting Docker Compose"
 docker compose up -d
@@ -194,10 +215,16 @@ EOF
             echo "🧹 Cleanup complete."
         }
         success {
+            // Placeholder for success notifications
             echo "✅ Pipeline completed successfully!"
+            // Example for Slack:
+            // slackSend channel: '#ci', message: "✅ Success: ${env.JOB_NAME} build #${env.BUILD_NUMBER}. See: ${env.BUILD_URL}"
         }
         failure {
+            // Placeholder for failure notifications
             echo "❌ Pipeline failed. See tunnel.log for more info."
+            // Example for Slack:
+            // slackSend channel: '#ci', message: "❌ Failed: ${env.JOB_NAME} build #${env.BUILD_NUMBER}. See: ${env.BUILD_URL}"
         }
     }
 }
