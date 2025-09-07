@@ -54,7 +54,6 @@ pipeline {
         stage('Install Tools') {
             steps {
                 sh '''
-                    # Install cloudflared
                     if [ -x "$CLOUDFLARED_BIN" ]; then
                         echo "✅ Using cached cloudflared"
                         "$CLOUDFLARED_BIN" --version
@@ -65,7 +64,6 @@ pipeline {
                         "$CLOUDFLARED_BIN" --version
                     fi
 
-                    # Install uv
                     if [ -x "$UV_BIN" ]; then
                         echo "✅ Using cached uv"
                         "$UV_BIN" --version
@@ -163,12 +161,24 @@ if [ ! -d .git ]; then
     echo "📥 Cloning repo $REPO_URL"
     git clone "$REPO_URL" .
 else
-    echo "🔁 Pulling latest changes"
-    git pull
+    echo "🔁 Resetting to latest commit"
+    git fetch origin
+    git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)
 fi
 
 echo "🛑 Stopping Docker Compose"
 docker compose down || true
+
+echo "🔍 Checking for changes in src/, tests/, or configs..."
+CHANGED=$(git diff --name-only HEAD@{1} HEAD | grep -E '^(src/|tests/|pyproject\.toml|Dockerfile)' || true)
+
+if [ -n "$CHANGED" ]; then
+    echo "🧱 Relevant changes detected → Rebuilding image with no cache"
+    docker compose build --no-cache
+else
+    echo "⚡ No code/config/test changes → Using cache"
+    docker compose build
+fi
 
 echo "🚀 Starting Docker Compose"
 docker compose up -d
