@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-wheel-metadata/
+.tox/
+.coverage
+.coverage.*
+.hypothesis/
+htmlcov/
+.ipynb_checkpoints
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# IDEs
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+.Trashes
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Lock files
+uv.lock
+
+# Jenkins specific
+tunnel.pid
+.tunnel_log_path
+tunnel.log

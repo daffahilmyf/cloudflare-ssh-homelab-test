@@ -3,12 +3,15 @@ pipeline {
 
     environment {
         CLOUDFLARED_BIN = "${HOME}/.local/bin/cloudflared"
+        UV_BIN = "${HOME}/.local/bin/uv"
         SSH_KNOWN_HOSTS_OPTION = '-o StrictHostKeyChecking=no'
+        PYTHON_VERSION = '3.12'
+        PATH = "${HOME}/.local/bin:${PATH}"
     }
 
     options {
         timestamps()
-        timeout(time: 10, unit: 'MINUTES')
+        timeout(time: 15, unit: 'MINUTES')
     }
 
     parameters {
@@ -39,15 +42,17 @@ pipeline {
                     }
 
                     sh 'mkdir -p "$(dirname $CLOUDFLARED_BIN)"'
+                    sh 'mkdir -p "$(dirname $UV_BIN)"'
                     def logPath = sh(script: 'mktemp', returnStdout: true).trim()
                     writeFile file: '.tunnel_log_path', text: logPath
                 }
             }
         }
 
-        stage('Install cloudflared') {
+        stage('Install Tools') {
             steps {
                 sh '''
+                    # Install cloudflared
                     if [ -x "$CLOUDFLARED_BIN" ]; then
                         echo "✅ Using cached cloudflared"
                         "$CLOUDFLARED_BIN" --version
@@ -57,6 +62,47 @@ pipeline {
                         chmod +x "$CLOUDFLARED_BIN"
                         "$CLOUDFLARED_BIN" --version
                     fi
+
+                    # Install uv
+                    if [ -x "$UV_BIN" ]; then
+                        echo "✅ Using cached uv"
+                        "$UV_BIN" --version
+                    else
+                        echo "⬇️ Downloading uv..."
+                        curl -LsSf https://astral.sh/uv/install.sh | sh
+                    fi
+                '''
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh '''
+                    echo "🐍 Installing Python dependencies..."
+                    uv pip install '.[dev]'
+
+                    echo "🧪 Running tests with coverage..."
+                    uv run coverage run -m pytest
+                    uv run coverage report -m
+                '''
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                sh '''
+                    echo "🔍 Running linter..."
+                    uv pip install ruff
+                    ruff check .
+                '''
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh '''
+                    echo "🏗️ Building Docker image..."
+                    docker build . -t homelab-api:latest
                 '''
             }
         }
@@ -120,7 +166,7 @@ echo "🛑 Stopping Docker Compose"
 docker compose down || true
 
 echo "🚀 Starting Docker Compose"
-docker compose up -d --build
+docker compose up -d
 
 echo "✅ Deploy finished"
 EOF
