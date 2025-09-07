@@ -1,6 +1,6 @@
 # Homelab API
 
-This project is a simple FastAPI application designed to be deployed to a homelab environment using Jenkins and Docker.
+This project is a simple FastAPI application designed to be deployed to a homelab environment using Jenkins and Docker. 
 
 ## Project Structure
 
