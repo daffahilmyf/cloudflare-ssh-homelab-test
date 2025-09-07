@@ -78,6 +78,9 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
+                    echo "🐍 Setting up virtual environment with uv..."
+                    uv venv
+
                     echo "🐍 Installing Python dependencies..."
                     uv pip install '.[dev]'
 
@@ -87,6 +90,7 @@ pipeline {
                 '''
             }
         }
+
 
         stage('Lint') {
             steps {
