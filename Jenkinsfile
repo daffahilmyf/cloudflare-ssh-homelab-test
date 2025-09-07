@@ -91,7 +91,7 @@ pipeline {
                 sh '''
                     echo "🛡️ Scanning for vulnerable Python packages..."
                     uv pip install '.[dev]'
-                    uv pip audit
+                    uv run pip-audit
                 '''
             }
         }
