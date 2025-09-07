@@ -7,7 +7,6 @@ pipeline {
         SSH_KNOWN_HOSTS_OPTION = '-o StrictHostKeyChecking=no'
         PYTHON_VERSION = '3.12'
         PATH = "${HOME}/.local/bin:${PATH}"
-        VERSION = "v${env.BUILD_NUMBER}"
     }
 
     options {
@@ -34,16 +33,12 @@ pipeline {
 
                     env.TUNNEL_LOCAL_BIND = "localhost:${env.SSH_PORT}"
                     env.CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/download/${params.CLOUDFLARED_VERSION}/cloudflared-${params.CLOUDFLARED_ARCH}"
-
-                    // Use SSH Git URL explicitly
-                    env.REPO_URL = "git@github.com:daffahilmyf/cloudflare-ssh-homelab-test.git"
+                    env.REPO_URL = sh(script: 'git config --get remote.origin.url', returnStdout: true).trim()
                     env.REPO_NAME = env.REPO_URL.tokenize('/').last().replace('.git', '')
                     env.DEPLOY_DIR = "${params.DEPLOY_DIR}/${env.REPO_NAME}"
-
                     if (params.STRICT_HOST_CHECKING) {
                         env.SSH_KNOWN_HOSTS_OPTION = ''
                     }
-
                     sh 'mkdir -p "$(dirname $CLOUDFLARED_BIN)"'
                     sh 'mkdir -p "$(dirname $UV_BIN)"'
                     writeFile file: '.tunnel_log_path', text: sh(script: 'mktemp', returnStdout: true).trim()
@@ -73,34 +68,38 @@ pipeline {
             }
         }
 
-        stage('Test & Lint') {
+        stage('Run Tests') {
             steps {
                 sh '''
-                    echo "🐍 Setting up virtual environment and installing dependencies..."
+                    echo "🐍 Setting up virtual environment with uv..."
                     uv venv
+                    echo "🐍 Installing Python dependencies..."
                     uv pip install '.[dev]'
-
                     echo "🧪 Running tests with coverage..."
                     uv run coverage run -m pytest
                     uv run coverage report -m
+                '''
+            }
+        }
 
+        stage('Lint') {
+            steps {
+                sh '''
                     echo "🔍 Running linter..."
+                    uv pip install ruff
                     uv run ruff check .
                 '''
             }
         }
 
-        stage('Security Scan') {
+        stage('Build Docker Image') {
             steps {
                 sh '''
-                    echo "🛡️ Scanning for vulnerable Python packages..."
-                    uv pip install '.[dev]'
-                    uv run pip-audit
+                    echo "🏗️ Building Docker image..."
+                    docker build . -t homelab-api:latest
                 '''
             }
         }
-
-        
 
         stage('Deploy to Homelab') {
             steps {
@@ -140,7 +139,7 @@ pipeline {
 
                         echo "📡 Connecting and deploying..."
 
-                        ssh -i "$SSH_KEY" $SSH_KNOWN_HOSTS_OPTION -p "$SSH_PORT" "$SSH_USER"@localhost DEPLOY_DIR="$DEPLOY_DIR" REPO_URL="$REPO_URL" REPO_NAME="$REPO_NAME" bash <<-'EOF'
+                        ssh -i "$SSH_KEY" $SSH_KNOWN_HOSTS_OPTION -p "$SSH_PORT" "$SSH_USER"@localhost DEPLOY_DIR="$DEPLOY_DIR" REPO_URL="$REPO_URL" REPO_NAME="$REPO_NAME" bash <<'EOF'
 set -euo pipefail
 
 mkdir -p "$DEPLOY_DIR"
@@ -153,12 +152,6 @@ else
     echo "🔄 Pulling latest changes"
     git pull origin $(git rev-parse --abbrev-ref HEAD)
 fi
-
-IMAGE_NAME="${REPO_NAME}_web"
-echo "PREVIOUS_IMAGE_TAG=${IMAGE_NAME}:previous-good" > .env.previous
-docker image inspect "${IMAGE_NAME}:latest" &> /dev/null && \
-    docker tag "${IMAGE_NAME}:latest" "${IMAGE_NAME}:previous-good" || \
-    echo "No previous image to tag as good."
 
 echo "🛑 Stopping Docker Compose"
 docker compose down || true
