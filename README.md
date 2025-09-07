@@ -46,6 +46,7 @@ This project is a simple FastAPI application designed to be deployed to a homela
 uvicorn src.main:app --reload
 ```
 
+
 The application will be available at `http://127.0.0.1:8000`.
 
 ### Running Tests
