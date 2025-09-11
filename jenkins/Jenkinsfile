@@ -36,12 +36,19 @@ pipeline {
                     env.REPO_URL = sh(script: 'git config --get remote.origin.url', returnStdout: true).trim()
                     env.REPO_NAME = env.REPO_URL.tokenize('/').last().replace('.git', '')
                     env.DEPLOY_DIR = "${params.DEPLOY_DIR}/${env.REPO_NAME}"
+
                     if (params.STRICT_HOST_CHECKING) {
                         env.SSH_KNOWN_HOSTS_OPTION = ''
                     }
+
                     sh 'mkdir -p "$(dirname $CLOUDFLARED_BIN)"'
                     sh 'mkdir -p "$(dirname $UV_BIN)"'
-                    writeFile file: '.tunnel_log_path', text: sh(script: 'mktemp', returnStdout: true).trim()
+
+                    writeFile(file: '.tunnel_log_path', text: sh(script: 'mktemp', returnStdout: true).trim())
+
+                    sh "chmod +x jenkins/scripts/*.sh"
+
+
                 }
             }
         }
