@@ -1,0 +1,108 @@
+pipeline {
+    agent any
+
+    environment {
+        CLOUDFLARED_BIN = "${HOME}/.local/bin/cloudflared"
+        UV_BIN = "${HOME}/.local/bin/uv"
+        SSH_KNOWN_HOSTS_OPTION = '-o StrictHostKeyChecking=no'
+        PYTHON_VERSION = '3.12'
+        PATH = "${HOME}/.local/bin:${PATH}"
+    }
+
+    options {
+        timestamps()
+        timeout(time: 15, unit: 'MINUTES')
+    }
+
+    parameters {
+        string(name: 'CLOUDFLARED_VERSION', defaultValue: '2024.8.0')
+        string(name: 'CLOUDFLARED_ARCH', defaultValue: 'linux-amd64')
+        string(name: 'SSH_HOSTNAME', defaultValue: 'ssh.tesutotech.my.id')
+        string(name: 'DEPLOY_DIR', defaultValue: '~/homelab-apps')
+        booleanParam(name: 'USE_RANDOM_PORT', defaultValue: false)
+        booleanParam(name: 'STRICT_HOST_CHECKING', defaultValue: false)
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    env.SSH_PORT = params.USE_RANDOM_PORT
+                        ? sh(script: "shuf -i 2000-65000 -n 1", returnStdout: true).trim()
+                        : '2222'
+
+                    env.TUNNEL_LOCAL_BIND = "localhost:${env.SSH_PORT}"
+                    env.CLOUDFLARED_URL = "https://github.com/cloudflare/cloudflared/releases/download/${params.CLOUDFLARED_VERSION}/cloudflared-${params.CLOUDFLARED_ARCH}"
+                    env.REPO_URL = sh(script: 'git config --get remote.origin.url', returnStdout: true).trim()
+                    env.REPO_NAME = env.REPO_URL.tokenize('/').last().replace('.git', '')
+                    env.DEPLOY_DIR = "${params.DEPLOY_DIR}/${env.REPO_NAME}"
+                    if (params.STRICT_HOST_CHECKING) {
+                        env.SSH_KNOWN_HOSTS_OPTION = ''
+                    }
+                    sh 'mkdir -p "$(dirname $CLOUDFLARED_BIN)"'
+                    sh 'mkdir -p "$(dirname $UV_BIN)"'
+                    writeFile file: '.tunnel_log_path', text: sh(script: 'mktemp', returnStdout: true).trim()
+                }
+            }
+        }
+
+        stage('Install Tools') {
+            steps {
+                sh 'bash jenkins/scripts/install_tools.sh'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                sh 'bash jenkins/scripts/run_tests.sh'
+            }
+        }
+
+        stage('Lint') {
+            steps {
+                sh 'bash jenkins/scripts/lint.sh'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                sh 'bash jenkins/scripts/build_docker.sh'
+            }
+        }
+
+        stage('Deploy to Homelab') {
+            steps {
+                withCredentials([
+                    string(credentialsId: '3e686402-a4a8-4278-8116-0a726c671824', variable: 'CLIENT_ID'),
+                    string(credentialsId: 'af1d8abd-ada2-45c6-8d8c-b518135c759b', variable: 'CLIENT_SECRET'),
+                    sshUserPrivateKey(credentialsId: 'f856e05c-4757-4368-a28b-0a6804256f56', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')
+                ]) {
+                    sh 'bash jenkins/scripts/deploy_to_homelab.sh'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh '''
+                if [ -f tunnel.pid ]; then
+                    kill "$(cat tunnel.pid)" || true
+                    rm -f tunnel.pid
+                fi
+
+                if [ -f .tunnel_log_path ]; then
+                    cp "$(cat .tunnel_log_path)" tunnel.log || true
+                fi
+            '''
+            archiveArtifacts artifacts: 'tunnel.log', onlyIfSuccessful: false
+            echo "🧹 Cleanup complete."
+        }
+        success {
+            echo "✅ Pipeline completed successfully!"
+        }
+        failure {
+            echo "❌ Pipeline failed. See tunnel.log for more info."
+        }
+    }
+}
