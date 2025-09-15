@@ -1,9 +1,10 @@
 pipeline {
     agent any
 
-    triggers {
-        githubPullRequest()
+    options {
+        disableConcurrentBuilds()
     }
+
 
     stages {
         stage('Build') {
